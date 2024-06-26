@@ -1,0 +1,50 @@
+#!/usr/bin/fish
+read -l -P 'Boot partition? ' boot_part
+read -l -P 'Root partition? ' root_part
+
+function read_confirm
+    while true
+        read -l -P 'Do you want to continue? [y/N] ' confirm
+
+        switch $confirm
+            case Y y
+                return 0
+            case '' N n
+                return 1
+        end
+    end
+end
+
+echo 'Going to format those partitions now.'
+if read_confirm
+    mkfs.vfat -F32 -nBOOT $boot_part
+    mkfs.ext4 -LROOT $root_part
+
+    mkdir -p /mnt/
+    mount $root_part /mnt/
+    mkdir -p /mnt/boot/
+    mount $boot_part /mnt/boot/
+
+    rsync -axHAWX --numeric-ids --info=progress2 / /mnt/
+
+    set boot_uuid (blkid $boot_part -s UUID -o value)
+    set root_uuid (blkid $root_part -s UUID -o value)
+
+    echo "UUID=$boot_uuid /boot vfat defaults 1 1" > /mnt/etc/fstab
+    echo "UUID=$root_uuid / ext4 defaults 1 1" >> /mnt/etc/fstab
+    echo "proc /proc proc nosuid,noexec,nodev 0 0" >> /mnt/etc/fstab
+    echo "sysfs /sys sysfs nosuid,noexec,nodev 0 0" >> /mnt/etc/fstab
+    echo "devpts /dev/pts devpts gid=5,mode=620 0 0" >> /mnt/etc/fstab
+    echo "tmpfs /run tmpfs defaults 0 0" >> /mnt/etc/fstab
+    echo "devtmpfs /dev devtmpfs mode=0755,nosuid 0 0" >> /mnt/etc/fstab
+    echo "tmpfs /dev/shm tmpfs nosuid,nodev 0 0" >> /mnt/etc/fstab
+    echo "cgroup2 /sys/fs/cgroup cgroup2 nosuid,noexec,nodev 0 0" >> /mnt/etc/fstab
+
+    rsync -axHAWX --numeric-ids --info=progress2 /boot/ /mnt/boot/
+
+    read -l -P 'Bootloader device? ' boot_device
+    grub-install $boot_device --target i386-pc --boot-directory=/mnt/boot
+
+    umount $boot_part
+    umount $root_part
+end
